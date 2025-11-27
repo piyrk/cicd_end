@@ -35,7 +35,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ./car-rental-system-backend-master
-          file: ./car-rental-system-backend-master/Dockerfile
+          file: Dockerfile
           push: true
           tags: |
             ${{ env.BACKEND_IMAGE }}:latest
@@ -45,7 +45,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ./car-rental-system-frontend-master
-          file: ./car-rental-system-frontend-master/Dockerfile
+          file: Dockerfile
           push: true
           tags: |
             ${{ env.FRONTEND_IMAGE }}:latest
@@ -95,8 +95,8 @@ jobs:
 
       - name: Update images to SHA
         run: |
-          kubectl -n $K8S_NAMESPACE set image deploy/car-rental-backend car-rental-backend=${BACKEND_IMAGE}:${GITHUB_SHA}
-          kubectl -n $K8S_NAMESPACE set image deploy/car-rental-frontend car-rental-frontend=${FRONTEND_IMAGE}:${GITHUB_SHA}
+          kubectl -n $K8S_NAMESPACE set image deploy/backend backend=${BACKEND_IMAGE}:${GITHUB_SHA}
+          kubectl -n $K8S_NAMESPACE set image deploy/frontend frontend=${FRONTEND_IMAGE}:${GITHUB_SHA}
 
       - name: Apply ingress
         run: kubectl apply -n $K8S_NAMESPACE -f k8s/ingress.yaml
