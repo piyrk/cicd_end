@@ -58,7 +58,7 @@ jobs:
           cache-from: type=registry,ref=${{ env.FRONTEND_IMAGE }}:buildcache
           cache-to: type=registry,ref=${{ env.FRONTEND_IMAGE }}:buildcache,mode=max
 
-  deploy:
+   deploy:
     name: Deploy to Kubernetes (optional)
     needs: build-and-push
     runs-on: ubuntu-latest
