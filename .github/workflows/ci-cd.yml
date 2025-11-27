@@ -95,8 +95,13 @@ jobs:
 
       - name: Update images to SHA
         run: |
+<<<<<<< HEAD
           kubectl -n $K8S_NAMESPACE set image deploy/backend backend=${BACKEND_IMAGE}:${GITHUB_SHA}
           kubectl -n $K8S_NAMESPACE set image deploy/frontend frontend=${FRONTEND_IMAGE}:${GITHUB_SHA}
+=======
+          kubectl -n $K8S_NAMESPACE set image deploy/car-rental-backend car-rental-backend=${BACKEND_IMAGE}:${GITHUB_SHA}
+          kubectl -n $K8S_NAMESPACE set image deploy/car-rental-frontend car-rental-frontend=${FRONTEND_IMAGE}:${GITHUB_SHA}
+>>>>>>> eb84db5494123665958b8326c1e95c7364ea70c8
 
       - name: Apply ingress
         run: kubectl apply -n $K8S_NAMESPACE -f k8s/ingress.yaml
