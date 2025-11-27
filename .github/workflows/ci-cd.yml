@@ -1,4 +1,4 @@
-name: CI-CD (Build Docker, Push to GHCR, Optional K8s Deploy)
+name: CI-CD (Build Docker, Push to GHCR, Deploy to K8s)
 
 on:
   push:
@@ -16,13 +16,12 @@ env:
 
 jobs:
   build-and-push:
-    name: Build & Push images to GHCR
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
+      - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Login to GHCR
@@ -32,7 +31,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build & push backend image
+      - name: Build backend
         uses: docker/build-push-action@v5
         with:
           context: ./car-rental-system-backend-master
@@ -41,10 +40,8 @@ jobs:
           tags: |
             ${{ env.BACKEND_IMAGE }}:latest
             ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
-          cache-from: type=registry,ref=${{ env.BACKEND_IMAGE }}:buildcache
-          cache-to: type=registry,ref=${{ env.BACKEND_IMAGE }}:buildcache,mode=max
 
-      - name: Build & push frontend image
+      - name: Build frontend
         uses: docker/build-push-action@v5
         with:
           context: ./car-rental-system-frontend-master
@@ -53,72 +50,53 @@ jobs:
           tags: |
             ${{ env.FRONTEND_IMAGE }}:latest
             ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
-          cache-from: type=registry,ref=${{ env.FRONTEND_IMAGE }}:buildcache
-          cache-to: type=registry,ref=${{ env.FRONTEND_IMAGE }}:buildcache,mode=max
 
   deploy:
-    name: Deploy to Kubernetes (optional)
-    needs: build-and-push
     runs-on: ubuntu-latest
+    needs: build-and-push
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up kubectl
         uses: azure/setup-kubectl@v4
-        with:
-          version: 'latest'
 
-      - name: Configure kubeconfig
-        if: ${{ secrets.KUBE_CONFIG_DATA != '' }}
+      - name: Write kubeconfig
         run: |
-          mkdir -p "$HOME/.kube"
-          echo "${KUBE_CONFIG_DATA}" | base64 -d > "$HOME/.kube/config"
+          mkdir -p ~/.kube
+          echo "${KUBE_CONFIG_DATA}" | base64 -d > ~/.kube/config
         env:
           KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
 
-      - name: Create namespace if not exists
-        if: ${{ secrets.KUBE_CONFIG_DATA != '' }}
-        run: |
-          kubectl get ns "$K8S_NAMESPACE" || kubectl create ns "$K8S_NAMESPACE"
+      - name: Create namespace
+        run: kubectl get ns $K8S_NAMESPACE || kubectl create ns $K8S_NAMESPACE
 
-      - name: Apply ConfigMap and PVCs
-        if: ${{ secrets.KUBE_CONFIG_DATA != '' }}
+      - name: Apply ConfigMap & PVCs
         run: |
-          kubectl apply -n "$K8S_NAMESPACE" -f k8s/config-backend.yaml
-          kubectl apply -n "$K8S_NAMESPACE" -f k8s/mysql-pvc.yaml -f k8s/uploads-pvc.yaml
+          kubectl apply -n $K8S_NAMESPACE -f k8s/config-backend.yaml
+          kubectl apply -n $K8S_NAMESPACE -f k8s/mysql-pvc.yaml
+          kubectl apply -n $K8S_NAMESPACE -f k8s/uploads-pvc.yaml
 
-      - name: Apply Secrets (from GitHub Secrets)
-        if: ${{ secrets.KUBE_CONFIG_DATA != '' }}
+      - name: Apply Secrets
         run: |
-          kubectl -n "$K8S_NAMESPACE" delete secret db-secret --ignore-not-found
-          kubectl -n "$K8S_NAMESPACE" create secret generic db-secret \
+          kubectl -n $K8S_NAMESPACE delete secret db-secret --ignore-not-found
+          kubectl -n $K8S_NAMESPACE create secret generic db-secret \
             --from-literal=MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD}" \
             --from-literal=MYSQL_APP_PASSWORD="${MYSQL_APP_PASSWORD}"
         env:
           MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
           MYSQL_APP_PASSWORD: ${{ secrets.MYSQL_APP_PASSWORD }}
 
-      - name: Deploy MySQL, Backend, Frontend
-        if: ${{ secrets.KUBE_CONFIG_DATA != '' }}
+      - name: Deploy manifests
         run: |
-          kubectl apply -n "$K8S_NAMESPACE" -f k8s/mysql-deployment.yaml
-          kubectl apply -n "$K8S_NAMESPACE" -f k8s/backend-deployment.yaml
-          kubectl apply -n "$K8S_NAMESPACE" -f k8s/frontend-deployment.yaml
+          kubectl apply -n $K8S_NAMESPACE -f k8s/mysql-deployment.yaml
+          kubectl apply -n $K8S_NAMESPACE -f k8s/backend-deployment.yaml
+          kubectl apply -n $K8S_NAMESPACE -f k8s/frontend-deployment.yaml
 
-      - name: Prepare image tags
-        if: ${{ secrets.KUBE_CONFIG_DATA != '' }}
+      - name: Update images to SHA
         run: |
-          echo "BACKEND_IMAGE_TAGGED=${BACKEND_IMAGE}:${GITHUB_SHA}" >> "$GITHUB_ENV"
-          echo "FRONTEND_IMAGE_TAGGED=${FRONTEND_IMAGE}:${GITHUB_SHA}" >> "$GITHUB_ENV"
+          kubectl -n $K8S_NAMESPACE set image deploy/car-rental-backend car-rental-backend=${BACKEND_IMAGE}:${GITHUB_SHA}
+          kubectl -n $K8S_NAMESPACE set image deploy/car-rental-frontend car-rental-frontend=${FRONTEND_IMAGE}:${GITHUB_SHA}
 
-      - name: Update images to the newly built SHAs
-        if: ${{ secrets.KUBE_CONFIG_DATA != '' }}
-        run: |
-          kubectl -n "$K8S_NAMESPACE" set image deploy/car-rental-backend car-rental-backend="$BACKEND_IMAGE_TAGGED"
-          kubectl -n "$K8S_NAMESPACE" set image deploy/car-rental-frontend car-rental-frontend="$FRONTEND_IMAGE_TAGGED"
-
-      - name: Apply Ingress (requires an ingress controller in the cluster)
-        if: ${{ secrets.KUBE_CONFIG_DATA != '' }}
-        run: |
-          kubectl apply -n "$K8S_NAMESPACE" -f k8s/ingress.yaml
+      - name: Apply ingress
+        run: kubectl apply -n $K8S_NAMESPACE -f k8s/ingress.yaml
